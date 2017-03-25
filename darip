@@ -1,5 +1,13 @@
 #!/bin/bash
 
+# TODO
+# 0. Trap Ctrl+C, Ctrl+Z
+# 1. Range of tracks to be ripped (1,2,4,5 | 2-12)
+# 2. Basic tagging (Artist, Album, Year, Genre, Comment)
+# 3. mp3gain
+# 4. Command line parsing with GNU getopt
+
+
 function exit_on_error {
     echo -e "$1"
     exit 1
@@ -9,15 +17,18 @@ function exit_on_error {
 #
 which transcode >/dev/null || exit_on_error "This program requires the package \"transcode\""
 
+
+
 # Defaults
 #
 
-OUTDIR="/home/fs/Music/$1/$2"
+OUTDIR="$HOME/Music/$1/$2"
 DVDDEV="/dev/sr0"
 
 TITLE=1
 TITLECOUNT=0
-CHAPTERS=0
+CHAPTERCOUNTER=0
+CHAPTERID=0
 AUDIOTRACK=0
 AUDIOPRESET=0
 CONT=n
@@ -29,6 +40,7 @@ CHECKSIZE=10
 #CHECKSIZE=1
 
 declare -a TITLEINFO
+declare -a CHAPTERS
 declare -a AUDIOINFO
 #----------------------------------
 
@@ -38,22 +50,38 @@ echo "Reading DVD information..."
 
 # get number of titles
 #
-TITLECOUNT=$(tcprobe -i ${DVDDEV} -H ${CHECKSIZE} 2>&1 | sed -n 's/.*DVD title [0-9][0-9]*\/\([^:]*\).*/\1/p')
+TITLECOUNT=$(tcprobe -i ${DVDDEV} -H ${CHECKSIZE} 2>&1) || exit_on_error "Fatal Error: Could not read DVD\n Make sure you have inserted a DVD and libdvdcss2 is installed"
+TITLECOUNT=$(cat <<< $TITLECOUNT \
+    | sed -n 's/.*DVD title [0-9][0-9]*\/\([^:]*\).*/\1/p')
 
 if [[ 1 -lt $TITLECOUNT ]]; then
     # Get info about each title
+    # Remove all lines except the one with DVD title and audio track
+    # information
     #
     for (( i=1; i<=${TITLECOUNT}; i++ )); do
-        TITLEINFO[$i]=$(tcprobe -i ${DVDDEV} -H ${CHECKSIZE} -T ${i} 2>&1 | grep -E 'DVD title|audio track')
-        # We only want to see lines with the titles now
+        TITLEINFO[$i]=$(tcprobe -i ${DVDDEV} -H ${CHECKSIZE} -T ${i} 2>&1 \
+            | grep -E 'DVD title|audio track')
+        # Get the amount of chapters for each title
+        # We want the preset for the DVD title to be the one with the most
+        # chapters $CHAPTERID
+        #
+        CHAPTERS[$i]=$(echo "${TITLEINFO[$i]}" | head -n1 \
+             | sed 's/.*DVD title [0-9][0-9]*\/[^:]*:\s\([0-9][0-9]*\).*/\1/')
+        if [[ ${CHAPTERS[$i]} -gt $CHAPTERCOUNTER ]]; then
+            CHAPTERCOUNTER=${CHAPTERS[$i]}
+            CHAPTERID=$i
+        fi
+
+        # We only want to display lines with the titles now
         echo "${TITLEINFO[$i]}" | head -n1 | sed "s/\[[^]]*\]/[${i}]/"
     done
 
-    # User chooses DVD title
+    # User chooses DVD title, preset is CHAPTERID
     #
     while true; do
-        read -e -p "Choose a title (1 to ${TITLECOUNT}) [1]: " TITLE
-        [[ -z $TITLE ]] && TITLE=1
+        read -e -p "Choose a title (1 to ${TITLECOUNT}) [$CHAPTERID]: " TITLE
+        [[ -z $TITLE ]] && TITLE=$CHAPTERID
         # loop until we get a valid value
         [[ $TITLE =~ ^-?[0-9]+$ && $TITLE -le $TITLECOUNT ]] && break
     done
@@ -63,10 +91,6 @@ else
 fi
 
 echo
-
-# Now get the number of chapters
-#
-CHAPTERS=$(echo "${TITLEINFO[$TITLE]}" | head -n1 | sed 's/.*DVD title [0-9][0-9]*\/[^:]*:\s\([0-9][0-9]*\).*/\1/')
 
 # List Audio Tracks and try to choose the correct one
 #
@@ -99,11 +123,11 @@ fi
 echo
 
 echo "DVD title: $TITLE
-Chapters: $CHAPTERS
+Chapters: ${CHAPTERS[$TITLE]}
 Audio Track: $AUDIOTRACK"
 
 while true; do
-        read -e -p "Start ripping $CHAPTERS audio tracks from DVD title $TITLE? [Y/n] " CONT
+        read -e -p "Start ripping ${CHAPTERS[$TITLE]} audio tracks from DVD title $TITLE? [Y/n] " CONT
         [[ -z $CONT ]] && CONT="y"
         if [[ $CONT =~ ^[yY]$ ]]; then
             break
@@ -114,7 +138,7 @@ while true; do
 
 echo
 
-for (( i=1; i<=${CHAPTERS}; i++ )); do
+for (( i=1; i<=${CHAPTERS[$TITLE]}; i++ )); do
     if [[ $i -lt 10 ]]; then
         TRACKNO="0${i}"
     else
@@ -126,26 +150,3 @@ for (( i=1; i<=${CHAPTERS}; i++ )); do
 done
 
 eject ${DVDDEV}
-
-#Inspect DVD with following command
-
-#    pg@pipoTower: ~$ tcprobe -i /dev/sr0
-
-#    look for line where chapters is like following:
-
-#    [dvd_reader.c] DVD title 1/1: 17 chapter(s), 1 angle(s), title set 1
-
-#    Rip all titles to mp3 where for example {1..17} is the number of
-#    chapters of your dvd
-
-#    for i in {1..17};do
-#      transcode -x null,dvd -y null,tcaud -i /dev/sr0 -T 1,$i,1 -a 0 -E 44100,16,2 --lame_preset medium -m ~/tmp/yourDestinationMp3File_chapter${i}.mp3;
-#    done
-
-#    For details of command:
-#        -T title,chapter,angle (described by your tcprobe command in
-#           point 1.)
-#        -a audioTrackNumber
-#        -i inputDevice
-#        --lampe_preset can be: medium, standard, extreme refer to man
-#                               transcode for further details
