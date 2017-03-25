@@ -1,0 +1,3 @@
+# DVD Audio Ripper
+
+Wrapper script for transcode to rip Audio/Music DVDs. For Linux only.
