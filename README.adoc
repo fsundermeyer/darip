@@ -1,3 +1,4 @@
 # DVD Audio Ripper
 
 Wrapper script for transcode to rip Audio/Music DVDs. For Linux only.
+Inspired by Philippe Gachoud's answer in http://askubuntu.com/questions/24326/how-do-i-rip-audio-from-a-dvd
