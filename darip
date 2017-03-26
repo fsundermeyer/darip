@@ -13,6 +13,30 @@ function exit_on_error {
     exit 1
 }
 
+function darip_help {
+    cat <<EOF
+Usage:
+  $ME [OPTIONS] TBD [RANGE]
+
+General Options:
+  TBD --gain=(album|track)
+  --help
+  TBD --outdir
+
+Tagging Options:
+  TBD --artist="ARTIST"
+  TBD --album="ALBUMTITLE"
+  TBD --comment="COMMENT"
+  TBD --genre=GENRE
+  TBD --year=YEAR
+
+Expert Options:
+  TBD --device
+  TBD --seek
+
+EOF
+}
+
 trap "exit_on_error '\nCaught SIGTERM/SIGINT'" SIGTERM SIGINT
 #trap "cleanup" ERR
 
@@ -21,10 +45,8 @@ trap "exit_on_error '\nCaught SIGTERM/SIGINT'" SIGTERM SIGINT
 which transcode >/dev/null || exit_on_error "This program requires the package \"transcode\""
 
 
-
 # Defaults
 #
-
 OUTDIR="$HOME/Music/$1/$2"
 DVDDEV="/dev/sr0"
 
@@ -45,7 +67,37 @@ CHECKSIZE=10
 declare -a TITLEINFO
 declare -a CHAPTERS
 declare -a AUDIOINFO
+
+ME=$0
+
 #----------------------------------
+# Parsing the command line arguments
+#
+
+ARGS=$(getopt -o h -l artist:,album:,comment:,device:,gain:,genre,help,outdir:,seek:,year: -n "$ME" -- "$@")
+
+# Exit when getopt returns errors
+#
+GETOPT_RETURN_CODE=$?
+[[ 0 != $GETOPT_RETURN_CODE ]] && exit $GETOPT_RETURN_CODE
+
+eval set -- "$ARGS"
+
+while true ; do
+    case "$1" in
+        #--gain)
+        #    GAINMETHOD=$2
+        ## album or track??
+        #    shift 2
+        #   ;;
+        --help|-h)
+            darip_help
+            exit 0
+            ;;
+    esac
+done
+
+# --- Let the fun begin ... -----------------------
 
 mkdir -p $OUTDIR
 
