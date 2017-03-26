@@ -1,4 +1,12 @@
 #!/bin/bash
+#
+# darip: DVD Audio Ripper for Linux
+# Copyright 2017 Frank Sundermeyer
+#
+# Licensed under the GPL 2.0 or GPL 3.0 at your choice
+#
+# Inspired by Philippe Gachoud's answer in
+# http://askubuntu.com/questions/24326/how-do-i-rip-audio-from-a-dvd
 
 # TODO
 #
