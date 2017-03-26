@@ -13,8 +13,6 @@
 # 1. Range of tracks to be ripped (1,2,4,5 | 2-12)
 # 2. Basic tagging (Artist, Album, Year, Genre, Comment)
 # 3. mp3gain
-# 4. Command line parsing with GNU getopt
-
 
 function exit_on_error {
     echo -e "$1"
@@ -29,7 +27,12 @@ Usage:
 General Options:
   TBD --gain=(album|track)
   --help
-  TBD --outdir
+  TBD --nospace=(0|1)
+  --outdir=PATH             Path to the output directory. If one or more of
+                            artist, albumtitle, and year are specified, the
+                            output will go to OUTDIR/ARTIST/YEAR_ALBUM
+                            Default: $HOME/Music
+  TBD --preset=LAME_PRESET
 
 Tagging Options:
   TBD --artist="ARTIST"
@@ -55,8 +58,9 @@ which transcode >/dev/null || exit_on_error "This program requires the package \
 
 # Defaults
 #
-OUTDIR="$HOME/Music/$1/$2"
+OUTDIR="$HOME/Music"
 DVDDEV="/dev/sr0"
+STRIPSPACE=1
 
 TITLE=1
 TITLECOUNT=0
@@ -82,7 +86,7 @@ ME=$0
 # Parsing the command line arguments
 #
 
-ARGS=$(getopt -o h -l artist:,album:,comment:,device:,gain:,genre,help,outdir:,seek:,year: -n "$ME" -- "$@")
+ARGS=$(getopt -o h -l artist:,album:,comment:,device:,gain:,genre,help,nospace:,outdir:,preset:,seek:,year: -n "$ME" -- "$@")
 
 # Exit when getopt returns errors
 #
@@ -98,22 +102,61 @@ while true ; do
         ## album or track??
         #    shift 2
         #   ;;
+        --album)
+            ALBUM="$2"
+            shift 2
+           ;;
+        --artist)
+            ARTIST="$2"
+            shift 2
+           ;;
         --help|-h)
             darip_help
             exit 0
+            ;;
+        --outdir)
+            OUTDIR="$2"
+            shift 2
+           ;;
+        --year)
+            YEAR="$2"
+            shift 2
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            exit_on_error "Internal error!"
             ;;
     esac
 done
 
 # --- Let the fun begin ... -----------------------
 
-mkdir -p $OUTDIR
+#-----
+# The output directory
+#
+[[ -n "$ARTIST" ]] && OUTDIR="$OUTDIR/$ARTIST"
+if [[ -n "$YEAR" && -n "$ALBUM" ]]; then
+    OUTDIR="$OUTDIR/${YEAR}_$ALBUM"
+else
+    if [[ -n "$ALBUM" ]]; then
+        OUTDIR="$OUTDIR/$ALBUM"
+    elif [[ -n "$YEAR" ]]; then
+        OUTDIR="$OUTDIR/$YEAR"
+    fi
+fi
+
+if [[ ! -d "$OUTDIR" ]]; then
+    mkdir -p "$OUTDIR" || exit_on_error "Fatal error: Could not create output directory ${OUTDIR}"
+fi
 
 echo "Reading DVD information..."
 
 # get number of titles
 #
-TITLECOUNT=$(tcprobe -i ${DVDDEV} -H ${CHECKSIZE} 2>&1) || exit_on_error "Fatal Error: Could not read DVD\n Make sure you have inserted a DVD and libdvdcss2 is installed"
+TITLECOUNT=$(tcprobe -i ${DVDDEV} -H ${CHECKSIZE} 2>&1) || exit_on_error "Fatal error: Could not read DVD\n Make sure you have inserted a DVD and libdvdcss2 is installed"
 TITLECOUNT=$(cat <<< $TITLECOUNT \
     | sed -n 's/.*DVD title [0-9][0-9]*\/\([^:]*\).*/\1/p')
 
