@@ -25,16 +25,33 @@ Usage:
   $ME [OPTIONS] TBD [RANGE]
 
 General Options:
+----------------
   TBD --gain=(album|track)
   --help
-  TBD --nospace=(0|1)
+
   --outdir=PATH             Path to the output directory. If one or more of
                             artist, albumtitle, and year are specified, the
                             output will go to OUTDIR/ARTIST/YEAR_ALBUM
                             Default: $HOME/Music
+
+  --purge=CHARACTER_LIST    Space-separated list of characters that will be
+                            removed from file and directory names. |\:*?$/!
+                            plus spaces and periods at the beginning and
+                            the end of names will always be removed. With this
+                            parameter you can specify _additional_ characters
+                            that should be replaced.
+                            Default: Empty
+
+  --stripspace=(0|1)        Specify whether you want to replace spaces in
+                            file or directory names with underscores (1) or
+                            not (0).
+                            Default: 1 (spaces will be replaced)
+
   TBD --preset=LAME_PRESET
 
 Tagging Options:
+----------------
+
   TBD --artist="ARTIST"
   TBD --album="ALBUMTITLE"
   TBD --comment="COMMENT"
@@ -42,10 +59,38 @@ Tagging Options:
   TBD --year=YEAR
 
 Expert Options:
+---------------
+
   TBD --device
   TBD --seek
 
 EOF
+}
+
+function cleanse_path {
+    local _CHAR _PATH _PURGE
+    _PATH="$1"
+    _PURGE="$PURGE $PURGE_USER"
+    # iterate over characters in _PURGE and remove them from _PATH
+    for _CHAR in $_PURGE; do
+        _PATH=${_PATH//$_CHAR/}
+    done
+    # replace spaces if required
+    [[ 1 -eq $STRIPSPACE ]] && _PATH=${_PATH// /_}
+    echo "$_PATH"
+    return
+}
+
+function cleanse_tags {
+    local _STR
+    _STR=$1
+    # remove . and space from beginning and end
+    _STR=$(cat <<< $_STR | sed 's/^[\.[:space:]]*//')
+    _STR=$(cat <<< $_STR | sed 's/[\.[:space:]]$//')
+    # replace slashes with underscores
+    _STR=${_STR//\//_}
+    echo "$_STR"
+    return
 }
 
 trap "exit_on_error '\nCaught SIGTERM/SIGINT'" SIGTERM SIGINT
@@ -68,7 +113,11 @@ CHAPTERCOUNTER=0
 CHAPTERID=0
 AUDIOTRACK=0
 AUDIOPRESET=0
-CONT=n
+START_RIP=n
+TAGGING=0
+
+STRIPSPACE="1"
+PURGE="\| \ : \* \? \$ \!"
 
 LAME_PRESET="insane"
 
@@ -80,13 +129,13 @@ declare -a TITLEINFO
 declare -a CHAPTERS
 declare -a AUDIOINFO
 
-ME=$0
+ME=$(basename $0)
 
 #----------------------------------
 # Parsing the command line arguments
 #
 
-ARGS=$(getopt -o h -l artist:,album:,comment:,device:,gain:,genre,help,nospace:,outdir:,preset:,seek:,year: -n "$ME" -- "$@")
+ARGS=$(getopt -o h -l artist:,album:,comment:,device:,gain:,genre,help,nospace:,outdir:,preset:,purge:,seek:,year: -n "$ME" -- "$@")
 
 # Exit when getopt returns errors
 #
@@ -117,10 +166,27 @@ while true ; do
         --outdir)
             OUTDIR="$2"
             shift 2
-           ;;
-        --year)
-            YEAR="$2"
+            ;;
+        --purge)
+            PURGE_USER="$2"
             shift 2
+            ;;
+        --stripspace)
+            if [[ "$2" =~ ^[01]$ ]]; then
+                STRIPSPACE=$2
+            else
+                exit_on_error "Wrong parameter for --stripspace. Must be 0 or 1."
+            fi
+            shift 2
+            ;;
+        --year)
+            if [[ $2 =~ ^[0-9]{4}$ ]]; then
+                YEAR="$2"
+                shift 2
+                ;;
+            else
+                exit_on_error "The year needs to be entered as four digits (e.g. 2017)"
+            fi
             ;;
         --)
             shift
@@ -137,19 +203,21 @@ done
 #-----
 # The output directory
 #
-[[ -n "$ARTIST" ]] && OUTDIR="$OUTDIR/$ARTIST"
+[[ -n "$ARTIST" ]] && OUTDIR="$OUTDIR/$(cleanse_tags "$ARTIST")"
 if [[ -n "$YEAR" && -n "$ALBUM" ]]; then
-    OUTDIR="$OUTDIR/${YEAR}_$ALBUM"
+    OUTDIR="$OUTDIR/${YEAR}_$(cleanse_tags "$ALBUM")"
 else
     if [[ -n "$ALBUM" ]]; then
-        OUTDIR="$OUTDIR/$ALBUM"
+        OUTDIR="$OUTDIR/$(cleanse_tags "$ALBUM")"
     elif [[ -n "$YEAR" ]]; then
         OUTDIR="$OUTDIR/$YEAR"
     fi
 fi
 
-if [[ ! -d "$OUTDIR" ]]; then
-    mkdir -p "$OUTDIR" || exit_on_error "Fatal error: Could not create output directory ${OUTDIR}"
+OUTDIR=$(cleanse_path "$OUTDIR")
+
+if [[ ! -d $OUTDIR ]]; then
+    mkdir -p $OUTDIR >/dev/null || exit_on_error "Cannot create directory ${OUTDIR}. Missing write permissions?"
 fi
 
 echo "Reading DVD information..."
@@ -233,9 +301,9 @@ Chapters: ${CHAPTERS[$TITLE]}
 Audio Track: $AUDIOTRACK"
 
 while true; do
-        read -e -p "Start ripping ${CHAPTERS[$TITLE]} audio tracks from DVD title $TITLE? [Y/n] " CONT
-        [[ -z $CONT ]] && CONT="y"
-        if [[ $CONT =~ ^[yY]$ ]]; then
+        read -e -p "Start ripping ${CHAPTERS[$TITLE]} audio tracks from DVD title $TITLE? [Y/n] " START_RIP
+        [[ -z $START_RIP ]] && START_RIP="y"
+        if [[ $START_RIP =~ ^[yY]$ ]]; then
             break
         else
             exit 1
