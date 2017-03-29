@@ -25,8 +25,8 @@ Usage:
 
 General Options:
 ----------------
-  TBD --gain=(album|track)
-  --help
+
+  --help                    Print this help screen.
 
   --outdir=PATH             Path to the output directory. If one or more of
                             artist, albumtitle, and year are specified, the
@@ -51,21 +51,20 @@ General Options:
 Tagging Options:
 ----------------
 
-If one or more of the following options is set, the mp3 files will
-automatically be tagged with the data that is available. Album, artist and
-year will also be used for the output directory (see --outdir).
+  --album="ALBUMTITLE",  If one or more of the following options is set,
+  --artist="ARTIST",     the mp3 files will automatically be tagged with the
+  --comment="COMMENT",   specified data. Album, artist and year will also
+  --genre="GENRE",       be used for the output directory (see --outdir).
+  --year="YEAR"
+
+  --gain=(album|track)   Apply album or track gain to the mp3 files.
+                         Requires mp3gain to be installed.
 
 Track titles and numbers will not be written. DVDs usually contain additional
 tracks at the beginning or end of the tracklist (e.g. background music for the
 menu and/or the credits), which you probably want to remove in a
 post-processing step. Titles and track numbers would very likely be wrong in
 this case.
-
-  --album="ALBUMTITLE"
-  --artist="ARTIST"
-  --comment="COMMENT"
-  --genre="GENRE"
-  --year="YEAR"
 
 Expert Options:
 ---------------
@@ -105,7 +104,7 @@ function cleanse_tags {
 trap "exit_on_error '\nCaught SIGTERM/SIGINT'" SIGTERM SIGINT
 #trap "cleanup" ERR
 
-# Check if transcode is installed
+# Check if required programs are installed
 #
 which transcode >/dev/null || exit_on_error "This program requires the package \"transcode\""
 
@@ -113,6 +112,9 @@ if [[ 1 -eq $TAGGING ]]; then
     which id3v2 >/dev/null || exit_on_error "Tagging requires the package \"id3v2\""
 fi
 
+if [[ -n $GAINMETHOD ]]; then
+    which mp3gain >/dev/null || exit_on_error "Applying gain requires the package \"mp3gain\""
+fi
 
 # Defaults
 #
@@ -134,6 +136,7 @@ AUDIOTRACK=0
 AUDIOPRESET=0
 START_RIP=n
 TAGGING=0
+GAINMETHOD=""
 
 STRIPSPACE="1"
 PURGE="\| \ : \* \? \$ \!"
@@ -165,11 +168,6 @@ eval set -- "$ARGS"
 
 while true ; do
     case "$1" in
-        #--gain)
-        #    GAINMETHOD=$2
-        ## album or track??
-        #    shift 2
-        #   ;;
         --album)
             ALBUM="$2"
             TAGGING=1
@@ -184,7 +182,18 @@ while true ; do
             COMMENT="$2"
             TAGGING=1
             shift 2
-           ;;
+            ;;
+
+        --gain)
+            if [[ "album" = "$2" ]]; then
+                GAINMETHOD="-a"
+            elif [[ "track" = "$2" ]]; then
+                GAINMETHOD="-r"
+            else
+                exit_on_error "Wrong parameter for --gain. Must be 'album' or 'track'"
+            fi
+            shift 2
+            ;;
         --genre)
             GENRE="$2"
             TAGGING=1
@@ -206,7 +215,7 @@ while true ; do
             if [[ "$2" =~ ^[01]$ ]]; then
                 STRIPSPACE=$2
             else
-                exit_on_error "Wrong parameter for --stripspace. Must be 0 or 1."
+                exit_on_error "Wrong parameter for --stripspace. Must be '0' or '1'."
             fi
             shift 2
             ;;
@@ -361,6 +370,11 @@ for (( i=1; i<=${CHAPTERS[$TITLE]}; i++ )); do
           --genre "$GENRE" ${OUTDIR}/${TRACKNO}.mp3
     fi
 done
+
+if [[ -n $GAINMETHOD ]]; then
+    echo "Applying gain"
+    mp3gain $GAINMETHOD "${OUTDIR}"/*.mp3
+fi
 
 echo -e "\nDone: ${CHAPTERS[$TITLE]} mp3 files written to\n${OUTDIR}"
 
