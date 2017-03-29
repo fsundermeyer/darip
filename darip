@@ -11,7 +11,6 @@
 # TODO
 #
 # 1. Range of tracks to be ripped (1,2,4,5 | 2-12)
-# 3. mp3gain
 
 function exit_on_error {
     echo -e "$1"
@@ -26,39 +25,43 @@ Usage:
 General Options:
 ----------------
 
-  --help                    Print this help screen.
+  --help                  Print this help screen.
 
-  --outdir=PATH             Path to the output directory. If one or more of
-                            artist, albumtitle, and year are specified, the
-                            output will go to OUTDIR/ARTIST/YEAR_ALBUM
-                            Default: $HOME/Music
+  --outdir=PATH           Path to the output directory. If one or more of
+                          artist, albumtitle, and year are specified, the
+                          output will go to OUTDIR/ARTIST/YEAR_ALBUM
+                          Default: $HOME/Music
 
-  --purge=CHARACTER_LIST    Space-separated list of characters that will be
-                            removed from file and directory names. |\:*?$!
-                            plus spaces and periods at the beginning and
-                            the end of names will always be removed. With this
-                            parameter you can specify _additional_ characters
-                            that should be replaced.
-                            Default: Empty
+  --purge=CHARACTER_LIST  Space-separated list of characters that will be
+                          removed from file and directory names. |\:*?$!
+                          plus spaces and periods at the beginning and
+                          the end of names will always be removed. With this
+                          parameter you can specify _additional_ characters
+                          that should be replaced.
+                          Default: Empty
 
-  --stripspace=(0|1)        Specify whether you want to replace spaces in
-                            file or directory names with underscores (1) or
-                            not (0).
-                            Default: 1 (spaces will be replaced)
+  --stripspace=(0|1)      Specify whether you want to replace spaces in
+                          file or directory names with underscores (1) or
+                          not (0).
+                          Default: 1 (spaces will be replaced)
 
-  TBD --preset="LAME_PRESET"
+  --preset=(medium|       VBR Lame preset. Refer to man lame for more
+            standard|     information.
+            extreme|      Default: insane
+            insane)
 
 Tagging Options:
 ----------------
 
-  --album="ALBUMTITLE",  If one or more of the following options is set,
-  --artist="ARTIST",     the mp3 files will automatically be tagged with the
-  --comment="COMMENT",   specified data. Album, artist and year will also
-  --genre="GENRE",       be used for the output directory (see --outdir).
-  --year="YEAR"
+  --album="ALBUMTITLE",   If one or more of the following options is set,
+  --artist="ARTIST",      the mp3 files will automatically be tagged with the
+  --comment="COMMENT",    specified data. Album, artist and year will also
+  --genre="GENRE",        be used for the output directory (see --outdir).
+  --year="YEAR"           Default: unset
 
-  --gain=(album|track)   Apply album or track gain to the mp3 files.
-                         Requires mp3gain to be installed.
+  --gain=(album|track)    Apply album or track gain to the mp3 files.
+                          Requires mp3gain to be installed.
+                          Default: unset (no gain will be applied)
 
 Track titles and numbers will not be written. DVDs usually contain additional
 tracks at the beginning or end of the tracklist (e.g. background music for the
@@ -69,8 +72,14 @@ this case.
 Expert Options:
 ---------------
 
-  TBD --device
-  TBD --seek
+  --device                DVD device.
+                          Default: /dev/sr0
+
+  --seeksize              By default the first 10 MB of the DVD files are
+                          scanned to detect all subtitles and audio tracks.
+                          This should usually be sufficient. If not all tracks
+                          are found on you DVD, increase this value.
+                          Default: 10
 
 EOF
 }
@@ -144,8 +153,8 @@ PURGE="\| \ : \* \? \$ \!"
 LAME_PRESET="insane"
 
 # check the first XX MB of the DVD
-CHECKSIZE=10
-#CHECKSIZE=1
+SEEKSIZE=10
+#SEEKSIZE=1
 
 declare -a TITLEINFO
 declare -a CHAPTERS
@@ -157,7 +166,7 @@ ME=$(basename $0)
 # Parsing the command line arguments
 #
 
-ARGS=$(getopt -o h -l artist:,album:,comment:,device:,gain:,genre:,help,nospace:,outdir:,preset:,purge:,seek:,stripspace:,year: -n "$ME" -- "$@")
+ARGS=$(getopt -o h -l artist:,album:,comment:,device:,gain:,genre:,help,nospace:,outdir:,preset:,purge:,seeksize:,stripspace:,year: -n "$ME" -- "$@")
 
 # Exit when getopt returns errors
 #
@@ -183,7 +192,14 @@ while true ; do
             TAGGING=1
             shift 2
             ;;
-
+        --device)
+            if [[ -b "$2" ]]; then
+                DVDDEV="$2"
+            else
+                exit_on_error "The device specified with --device is not a block device"
+            fi
+            shift 2
+            ;;
         --gain)
             if [[ "album" = "$2" ]]; then
                 GAINMETHOD="-a"
@@ -207,6 +223,25 @@ while true ; do
             OUTDIR="$2"
             shift 2
             ;;
+        --preset)
+            if [[ "medium" = "$2" ||
+                  "standard" = "$2" ||
+                  "extreme" = "$2" ||
+                  "insane" = "$2" ]]; then
+                LAME_PRESET="$2"
+            else
+                exit_on_error "Wrong parameter for --preset. Must be 'medium', 'standard', 'extreme',\nand 'insane'"
+            fi
+            shift 2
+            ;;
+        --seeksize)
+            if [[ $2 =~ ^[0-9]{2,}$ ]]; then
+                SEEKSIZE="$2"
+                shift 2
+            else
+                exit_on_error "The value for --seeksize needs to be entered as at least two digits"
+            fi
+            ;;
         --purge)
             PURGE_USER="$2"
             shift 2
@@ -225,7 +260,7 @@ while true ; do
                 TAGGING=1
                 shift 2
             else
-                exit_on_error "The year needs to be entered as four digits (e.g. 2017)"
+                exit_on_error "The value for --year needs to be entered as four digits (e.g. 2017)"
             fi
             ;;
         --)
@@ -264,7 +299,7 @@ echo "Reading DVD information..."
 
 # get number of titles
 #
-TITLECOUNT=$(tcprobe -i ${DVDDEV} -H ${CHECKSIZE} 2>&1) || exit_on_error "Fatal error: Could not read DVD\n Make sure you have inserted a DVD and libdvdcss2 is installed"
+TITLECOUNT=$(tcprobe -i ${DVDDEV} -H ${SEEKSIZE} 2>&1) || exit_on_error "Fatal error: Could not read DVD\n Make sure you have inserted a DVD and libdvdcss2 is installed"
 TITLECOUNT=$(cat <<< $TITLECOUNT \
     | sed -n 's/.*DVD title [0-9][0-9]*\/\([^:]*\).*/\1/p')
 
@@ -274,7 +309,7 @@ if [[ 1 -lt $TITLECOUNT ]]; then
     # information
     #
     for (( i=1; i<=${TITLECOUNT}; i++ )); do
-        TITLEINFO[$i]=$(tcprobe -i ${DVDDEV} -H ${CHECKSIZE} -T ${i} 2>&1 \
+        TITLEINFO[$i]=$(tcprobe -i ${DVDDEV} -H ${SEEKSIZE} -T ${i} 2>&1 \
             | grep -E 'DVD title|audio track')
         # Get the amount of chapters for each title
         # We want the preset for the DVD title to be the one with the most
@@ -300,7 +335,7 @@ if [[ 1 -lt $TITLECOUNT ]]; then
         [[ $TITLE =~ ^-?[0-9]+$ && $TITLE -le $TITLECOUNT ]] && break
     done
 else
-    TITLEINFO[1]=$(tcprobe -i ${DVDDEV} -H ${CHECKSIZE} -T 1 2>&1 | grep -E 'DVD title|audio track')
+    TITLEINFO[1]=$(tcprobe -i ${DVDDEV} -H ${SEEKSIZE} -T 1 2>&1 | grep -E 'DVD title|audio track')
     echo "Only one DVD title present, ripping tracks from title ${TITLE}"
 fi
 
@@ -371,6 +406,8 @@ for (( i=1; i<=${CHAPTERS[$TITLE]}; i++ )); do
     fi
 done
 
+# mp3gain
+#
 if [[ -n $GAINMETHOD ]]; then
     echo "Applying gain"
     mp3gain $GAINMETHOD "${OUTDIR}"/*.mp3
