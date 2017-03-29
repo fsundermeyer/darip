@@ -11,7 +11,6 @@
 # TODO
 #
 # 1. Range of tracks to be ripped (1,2,4,5 | 2-12)
-# 2. Basic tagging (Artist, Album, Year, Genre, Comment)
 # 3. mp3gain
 
 function exit_on_error {
@@ -35,7 +34,7 @@ General Options:
                             Default: $HOME/Music
 
   --purge=CHARACTER_LIST    Space-separated list of characters that will be
-                            removed from file and directory names. |\:*?$/!
+                            removed from file and directory names. |\:*?$!
                             plus spaces and periods at the beginning and
                             the end of names will always be removed. With this
                             parameter you can specify _additional_ characters
@@ -47,16 +46,26 @@ General Options:
                             not (0).
                             Default: 1 (spaces will be replaced)
 
-  TBD --preset=LAME_PRESET
+  TBD --preset="LAME_PRESET"
 
 Tagging Options:
 ----------------
 
-  TBD --artist="ARTIST"
-  TBD --album="ALBUMTITLE"
-  TBD --comment="COMMENT"
-  TBD --genre=GENRE
-  TBD --year=YEAR
+If one or more of the following options is set, the mp3 files will
+automatically be tagged with the data that is available. Album, artist and
+year will also be used for the output directory (see --outdir).
+
+Track titles and numbers will not be written. DVDs usually contain additional
+tracks at the beginning or end of the tracklist (e.g. background music for the
+menu and/or the credits), which you probably want to remove in a
+post-processing step. Titles and track numbers would very likely be wrong in
+this case.
+
+  --album="ALBUMTITLE"
+  --artist="ARTIST"
+  --comment="COMMENT"
+  --genre="GENRE"
+  --year="YEAR"
 
 Expert Options:
 ---------------
@@ -100,12 +109,22 @@ trap "exit_on_error '\nCaught SIGTERM/SIGINT'" SIGTERM SIGINT
 #
 which transcode >/dev/null || exit_on_error "This program requires the package \"transcode\""
 
+if [[ 1 -eq $TAGGING ]]; then
+    which id3v2 >/dev/null || exit_on_error "Tagging requires the package \"id3v2\""
+fi
+
 
 # Defaults
 #
 OUTDIR="$HOME/Music"
 DVDDEV="/dev/sr0"
 STRIPSPACE=1
+
+ALBUM=""
+ARTIST=""
+COMMENT=""
+GENRE=""
+YEAR=""
 
 TITLE=1
 TITLECOUNT=0
@@ -135,7 +154,7 @@ ME=$(basename $0)
 # Parsing the command line arguments
 #
 
-ARGS=$(getopt -o h -l artist:,album:,comment:,device:,gain:,genre,help,nospace:,outdir:,preset:,purge:,seek:,year: -n "$ME" -- "$@")
+ARGS=$(getopt -o h -l artist:,album:,comment:,device:,gain:,genre:,help,nospace:,outdir:,preset:,purge:,seek:,stripspace:,year: -n "$ME" -- "$@")
 
 # Exit when getopt returns errors
 #
@@ -153,10 +172,22 @@ while true ; do
         #   ;;
         --album)
             ALBUM="$2"
+            TAGGING=1
             shift 2
            ;;
         --artist)
             ARTIST="$2"
+            TAGGING=1
+            shift 2
+           ;;
+        --comment)
+            COMMENT="$2"
+            TAGGING=1
+            shift 2
+           ;;
+        --genre)
+            GENRE="$2"
+            TAGGING=1
             shift 2
            ;;
         --help|-h)
@@ -182,8 +213,8 @@ while true ; do
         --year)
             if [[ $2 =~ ^[0-9]{4}$ ]]; then
                 YEAR="$2"
+                TAGGING=1
                 shift 2
-                ;;
             else
                 exit_on_error "The year needs to be entered as four digits (e.g. 2017)"
             fi
@@ -298,7 +329,8 @@ echo
 
 echo "DVD title: $TITLE
 Chapters: ${CHAPTERS[$TITLE]}
-Audio Track: $AUDIOTRACK"
+Audio Track: $AUDIOTRACK
+Output directory: $OUTDIR"
 
 while true; do
         read -e -p "Start ripping ${CHAPTERS[$TITLE]} audio tracks from DVD title $TITLE? [Y/n] " START_RIP
@@ -321,6 +353,15 @@ for (( i=1; i<=${CHAPTERS[$TITLE]}; i++ )); do
     transcode -x null,dvd -y null,tcaud -i ${DVDDEV} -T $TITLE,${i},1 \
               -a ${AUDIOTRACK} -E 44100,16,2 --lame_preset ${LAME_PRESET} \
               -m ${OUTDIR}/${TRACKNO}.mp3
+
+    # Tag the resulting file
+    if [[ 1 -eq $TAGGING ]]; then
+        id3v2 --album "$ALBUM" --artist "$ARTIST" --year "$YEAR" \
+          --comment "$COMMENT" --song "" --track "" \
+          --genre "$GENRE" ${OUTDIR}/${TRACKNO}.mp3
+    fi
 done
+
+echo -e "\nDone: ${CHAPTERS[$TITLE]} mp3 files written to\n${OUTDIR}"
 
 eject ${DVDDEV}
