@@ -12,15 +12,21 @@
 #
 # 1. Range of tracks to be ripped (1,2,4,5 | 2-12)
 
-function exit_on_error {
+exit_on_error() {
     echo -e "$1"
     exit 1
 }
 
-function darip_help {
+darip_help() {
     cat <<EOF
 Usage:
-  $ME [OPTIONS] TBD [RANGE]
+  $ME [OPTIONS] [TRACKS]
+
+See the list of option below.
+
+The list of tracks is to be provided as a comma-separated list, ranges are
+supported (e.g. "1,2,5-9,15"). If no tracks are specified, all tracks from
+the selected title will be ripped.
 
 General Options:
 ----------------
@@ -84,7 +90,7 @@ Expert Options:
 EOF
 }
 
-function cleanse_path {
+cleanse_path() {
     local _CHAR _PATH _PURGE
     _PATH="$1"
     _PURGE="$PURGE $PURGE_USER"
@@ -98,7 +104,7 @@ function cleanse_path {
     return
 }
 
-function cleanse_tags {
+cleanse_tags() {
     local _STR
     _STR=$1
     # remove . and space from beginning and end
@@ -107,6 +113,37 @@ function cleanse_tags {
     # replace slashes with underscores
     _STR=${_STR//\//_}
     echo "$_STR"
+    return
+}
+
+tracklist() {
+    local _TRACKS _LIST N
+    local -a SEQ
+    _TRACKS="$@"
+    _TRACKS=${_TRACKS//,/ } # replace commas with space
+
+    for N in $_TRACKS; do
+        if [[ $N =~ ^[0-9]{1,}$ ]]; then
+            # regular numbers
+            #
+            _LIST=${_LIST:+"$_LIST $N"} # if _LIST is set, add digit + space
+            _LIST=${_LIST:-"$N"} # if _LIST is empty add digit without space
+        elif [[ $N =~ ^[0-9]{1,}-[0-9]{1,}$ ]]; then
+            # ranges (e.g. 5-11)
+            #
+            OIFS=$IFS
+            IFS=$'-'
+            # split range at "-" into an array SEQ
+            read -ra SEQ <<< "$N"
+            IFS=$OIFS
+            [[ ${SEQ[0]} -gt ${SEQ[1]} ]] && exit_on_error "If specifying a range in the tracklist,\nthe start of the range needs to be bigger than the end"
+            _LIST="$_LIST $(seq -s ' ' ${SEQ[0]} ${SEQ[1]})"
+        else
+            # should not occur
+            continue
+        fi
+    done
+    echo "$_LIST"
     return
 }
 
@@ -146,6 +183,8 @@ AUDIOPRESET=0
 START_RIP=n
 TAGGING=0
 GAINMETHOD=""
+TRACKLIST=""
+TRACKCOUNT=0
 
 STRIPSPACE="1"
 PURGE="\| \ : \* \? \$ \!"
@@ -273,6 +312,14 @@ while true ; do
     esac
 done
 
+# All the remaining ARGS should be the track list:
+
+if [[ -n "$@" ]]; then
+    TRACKLIST="$@"
+    [[ $TRACKLIST =~ ^[-0-9,[:space:]]{1,}$ && -n "$TRACKLIST" ]]  || exit_on_error "The tracklist does not match the expected format"
+    TRACKLIST=$(tracklist "$TRACKLIST")
+fi
+
 # --- Let the fun begin ... -----------------------
 
 #-----
@@ -299,7 +346,7 @@ echo "Reading DVD information..."
 
 # get number of titles
 #
-TITLECOUNT=$(tcprobe -i ${DVDDEV} -H ${SEEKSIZE} 2>&1) || exit_on_error "Fatal error: Could not read DVD\n Make sure you have inserted a DVD and libdvdcss2 is installed"
+TITLECOUNT=$(tcprobe -i ${DVDDEV} -H ${SEEKSIZE} 2>&1) || exit_on_error "Fatal error: Could not read DVD\nMake sure you have inserted a DVD and libdvdcss2 is installed"
 TITLECOUNT=$(cat <<< $TITLECOUNT \
     | sed -n 's/.*DVD title [0-9][0-9]*\/\([^:]*\).*/\1/p')
 
@@ -371,13 +418,21 @@ fi
 
 echo
 
-echo "DVD title: $TITLE
-Chapters: ${CHAPTERS[$TITLE]}
-Audio Track: $AUDIOTRACK
-Output directory: $OUTDIR"
+# If TRACKLIST is empty, create a list with 1 2 3...${CHAPTERS[$TITLE]}
+#
+[[ -z "$TRACKLIST" ]] && TRACKLIST=$(seq -s ' ' ${CHAPTERS[$TITLE]})
+TRACKCOUNT=$(wc -w <<< $TRACKLIST)
+
+
+echo "DVD title:  $TITLE
+DVD chapters:     ${CHAPTERS[$TITLE]}
+DVD audio track:  $AUDIOTRACK
+Tracks to rip:    $TRACKLIST
+Output directory: $OUTDIR
+"
 
 while true; do
-        read -e -p "Start ripping ${CHAPTERS[$TITLE]} audio tracks from DVD title $TITLE? [Y/n] " START_RIP
+        read -e -p "Start ripping ${TRACKCOUNT} audio tracks from DVD title $TITLE? [Y/n] " START_RIP
         [[ -z $START_RIP ]] && START_RIP="y"
         if [[ $START_RIP =~ ^[yY]$ ]]; then
             break
@@ -388,7 +443,8 @@ while true; do
 
 echo
 
-for (( i=1; i<=${CHAPTERS[$TITLE]}; i++ )); do
+#for (( i=1; i<=${CHAPTERS[$TITLE]}; i++ )); do
+for i in $TRACKLIST; do
     if [[ $i -lt 10 ]]; then
         TRACKNO="0${i}"
     else
