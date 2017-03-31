@@ -1,16 +1,14 @@
 #!/bin/bash
 #
 # darip: DVD Audio Ripper for Linux
+#
+# Author: Frank Sundermeyer <fsundermeyer at opensuse dot org>
 # Copyright 2017 Frank Sundermeyer
 #
 # Licensed under the GPL 2.0 or GPL 3.0 at your choice
 #
 # Inspired by Philippe Gachoud's answer in
 # http://askubuntu.com/questions/24326/how-do-i-rip-audio-from-a-dvd
-
-# TODO
-#
-# 1. Range of tracks to be ripped (1,2,4,5 | 2-12)
 
 exit_on_error() {
     echo -e "$1"
@@ -87,6 +85,11 @@ Expert Options:
                           are found on you DVD, increase this value.
                           Default: 10
 
+  --title                 Select a DVD title from which the tracks should be
+                          ripped. Only specify this option if you are sure
+                          which title to us. If you do not specify it, you can
+                          choose from the list of available titles.
+
 EOF
 }
 
@@ -114,6 +117,17 @@ cleanse_tags() {
     _STR=${_STR//\//_}
     echo "$_STR"
     return
+}
+
+get_chaptercount() {
+    head -n1 <<< ${TITLEINFO[$1]} \
+       | sed 's/.*DVD title [0-9][0-9]*\/[^:]*:\s\([0-9][0-9]*\).*/\1/'
+}
+
+get_titleinfo() {
+    set -o pipefail
+    tcprobe -i ${DVDDEV} -H ${SEEKSIZE} -T $1 2>&1 \
+        | grep -E 'DVD title|audio track' || return 1
 }
 
 tracklist() {
@@ -174,7 +188,7 @@ COMMENT=""
 GENRE=""
 YEAR=""
 
-TITLE=1
+declare -i TITLE_SELECTED
 TITLECOUNT=0
 CHAPTERCOUNTER=0
 CHAPTERID=0
@@ -205,7 +219,7 @@ ME=$(basename $0)
 # Parsing the command line arguments
 #
 
-ARGS=$(getopt -o h -l artist:,album:,comment:,device:,gain:,genre:,help,nospace:,outdir:,preset:,purge:,seeksize:,stripspace:,year: -n "$ME" -- "$@")
+ARGS=$(getopt -o h -l artist:,album:,comment:,device:,gain:,genre:,help,nospace:,outdir:,preset:,purge:,seeksize:,stripspace:,title:,year: -n "$ME" -- "$@")
 
 # Exit when getopt returns errors
 #
@@ -293,6 +307,14 @@ while true ; do
             fi
             shift 2
             ;;
+        --title)
+            if [[ $2 =~ ^[0-9]{1,}$ ]]; then
+                TITLE_SELECTED=$2
+                shift 2
+            else
+                exit_on_error "The value for --title needs to be numeric."
+            fi
+            ;;
         --year)
             if [[ $2 =~ ^[0-9]{4}$ ]]; then
                 YEAR="$2"
@@ -350,20 +372,26 @@ TITLECOUNT=$(tcprobe -i ${DVDDEV} -H ${SEEKSIZE} 2>&1) || exit_on_error "Fatal e
 TITLECOUNT=$(cat <<< $TITLECOUNT \
     | sed -n 's/.*DVD title [0-9][0-9]*\/\([^:]*\).*/\1/p')
 
-if [[ 1 -lt $TITLECOUNT ]]; then
+if [[ -n $TITLE_SELECTED && $TITLECOUNT -lt $TITLE_SELECTED ]]; then
+    exit_on_error "The title specified with --title cannot be found"
+fi
+
+if [[ 1 -lt $TITLECOUNT && -z $TITLE_SELECTED ]]; then
     # Get info about each title
     # Remove all lines except the one with DVD title and audio track
     # information
     #
     for (( i=1; i<=${TITLECOUNT}; i++ )); do
-        TITLEINFO[$i]=$(tcprobe -i ${DVDDEV} -H ${SEEKSIZE} -T ${i} 2>&1 \
-            | grep -E 'DVD title|audio track')
+        TITLEINFO[$i]=$(get_titleinfo $i)
+        if [[ $? -ne 0 ]]; then
+            echo "    Error reading DVD title $i"
+            continue
+        fi
         # Get the amount of chapters for each title
         # We want the preset for the DVD title to be the one with the most
         # chapters $CHAPTERID
         #
-        CHAPTERS[$i]=$(echo "${TITLEINFO[$i]}" | head -n1 \
-             | sed 's/.*DVD title [0-9][0-9]*\/[^:]*:\s\([0-9][0-9]*\).*/\1/')
+        CHAPTERS[$i]=$(get_chaptercount $i)
         if [[ ${CHAPTERS[$i]} -gt $CHAPTERCOUNTER ]]; then
             CHAPTERCOUNTER=${CHAPTERS[$i]}
             CHAPTERID=$i
@@ -376,25 +404,28 @@ if [[ 1 -lt $TITLECOUNT ]]; then
     # User chooses DVD title, preset is CHAPTERID
     #
     while true; do
-        read -e -p "Choose a title (1 to ${TITLECOUNT}) [$CHAPTERID]: " TITLE
-        [[ -z $TITLE ]] && TITLE=$CHAPTERID
-        # loop until we get a valid value
-        [[ $TITLE =~ ^-?[0-9]+$ && $TITLE -le $TITLECOUNT ]] && break
+        read -e -p "Choose a title [$CHAPTERID]: " TITLE_SELECTED
+        [[ 0 -eq $TITLE_SELECTED || -z $TITLE_SELECTED ]] && TITLE_SELECTED=$CHAPTERID
+        [[ $TITLE_SELECTED =~ ^-?[0-9]+$ && $TITLE_SELECTED -le $TITLECOUNT ]] && break
     done
 else
-    TITLEINFO[1]=$(tcprobe -i ${DVDDEV} -H ${SEEKSIZE} -T 1 2>&1 | grep -E 'DVD title|audio track')
-    echo "Only one DVD title present, ripping tracks from title ${TITLE}"
+    if [[ -z $TITLE_SELECTED ]]; then
+        echo "Only one DVD title present, ripping tracks from title ${TITLE_SELECTED}"
+        TITLE_SELECTED=1
+    fi
+    TITLEINFO[$TITLE_SELECTED]=$(get_titleinfo $TITLE_SELECTED)
+    CHAPTERS[$TITLE_SELECTED]=$(get_chaptercount $TITLE_SELECTED)
 fi
 
 echo
 
 # List Audio Tracks and try to choose the correct one
 #
-AUDIOCOUNT=$(echo "${TITLEINFO[$TITLE]}" | tail -n +2 | wc -l)
+AUDIOCOUNT=$(echo "${TITLEINFO[$TITLE_SELECTED]}" | tail -n +2 | wc -l)
 
 if [[ 1 -lt $AUDIOCOUNT ]]; then
     # extract the audioinfo lines from TITLEINFO
-    AUDIOINFO=$(echo "${TITLEINFO[$TITLE]}" | tail -n +2 | sed 's/^\s*//g')
+    AUDIOINFO=$(echo "${TITLEINFO[$TITLE_SELECTED]}" | tail -n +2 | sed 's/^\s*//g')
     # print the audioinfo lines
     # according to the tcprobe output the line that does _not_ end with
     # (*) is the default audio - probably what we want
@@ -418,21 +449,23 @@ fi
 
 echo
 
-# If TRACKLIST is empty, create a list with 1 2 3...${CHAPTERS[$TITLE]}
+# If TRACKLIST is empty, create a list with 1 2 3...${CHAPTERS[$TITLE_SELECTED]}
 #
-[[ -z "$TRACKLIST" ]] && TRACKLIST=$(seq -s ' ' ${CHAPTERS[$TITLE]})
+[[ -z "$TRACKLIST" ]] && TRACKLIST=$(seq -s ' ' ${CHAPTERS[$TITLE_SELECTED]})
+# remove leading space
+TRACKLIST=${TRACKLIST#"${TRACKLIST%%[![:space:]]*}"}
 TRACKCOUNT=$(wc -w <<< $TRACKLIST)
 
 
-echo "DVD title:  $TITLE
-DVD chapters:     ${CHAPTERS[$TITLE]}
+echo "DVD title:        $TITLE_SELECTED
+DVD chapters:     ${CHAPTERS[$TITLE_SELECTED]}
 DVD audio track:  $AUDIOTRACK
 Tracks to rip:    $TRACKLIST
 Output directory: $OUTDIR
 "
 
 while true; do
-        read -e -p "Start ripping ${TRACKCOUNT} audio tracks from DVD title $TITLE? [Y/n] " START_RIP
+        read -e -p "Start ripping ${TRACKCOUNT} audio tracks from DVD title $TITLE_SELECTED? [Y/n] " START_RIP
         [[ -z $START_RIP ]] && START_RIP="y"
         if [[ $START_RIP =~ ^[yY]$ ]]; then
             break
@@ -443,14 +476,19 @@ while true; do
 
 echo
 
-#for (( i=1; i<=${CHAPTERS[$TITLE]}; i++ )); do
+#for (( i=1; i<=${CHAPTERS[$TITLE_SELECTED]}; i++ )); do
 for i in $TRACKLIST; do
+    if [[ $i -gt ${CHAPTERS[$TITLE_SELECTED]} ]]; then
+        echo "ERROR: Title $i does not exist, skipping"
+        let TRACKCOUNT--;
+        continue
+    fi
     if [[ $i -lt 10 ]]; then
         TRACKNO="0${i}"
     else
         TRACKNO="${i}"
     fi
-    transcode -x null,dvd -y null,tcaud -i ${DVDDEV} -T $TITLE,${i},1 \
+    transcode -x null,dvd -y null,tcaud -i ${DVDDEV} -T $TITLE_SELECTED,${i},1 \
               -a ${AUDIOTRACK} -E 44100,16,2 --lame_preset ${LAME_PRESET} \
               -m ${OUTDIR}/${TRACKNO}.mp3
 
@@ -464,11 +502,11 @@ done
 
 # mp3gain
 #
-if [[ -n $GAINMETHOD ]]; then
+if [[ -n $GAINMETHOD && 0 -lt ${TRACKCOUNT} ]]; then
     echo "Applying gain"
     mp3gain $GAINMETHOD "${OUTDIR}"/*.mp3
 fi
 
-echo -e "\nDone: ${CHAPTERS[$TITLE]} mp3 files written to\n${OUTDIR}"
+echo -e "\nDone: ${TRACKCOUNT} mp3 files written to\n${OUTDIR}"
 
 eject ${DVDDEV}
