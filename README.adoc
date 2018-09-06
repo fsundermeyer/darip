@@ -21,16 +21,16 @@ General Options:
 
   --outdir=PATH           Path to the output directory. If one or more of
                           artist, albumtitle, and year are specified, the
-                                     output will go to OUTDIR/ARTIST/YEAR_ALBUM
-                                     Default: $HOME/Music
+                          output will go to OUTDIR/ARTIST/YEAR_ALBUM
+                          Default: $HOME/Music
 
   --purge=CHARACTER_LIST  Space-separated list of characters that will be
-                                    removed from file and directory names. |\:*?
-                                    plus spaces and periods at the beginning and
-                                    the end of names will always be removed. With this
-                                    parameter you can specify _additional_ characters
-                                    that should be replaced.
-                                    Default: Empty
+                          removed from file and directory names. |\:*?
+                          plus spaces and periods at the beginning and
+                          the end of names will always be removed. With this
+                          parameter you can specify _additional_ characters
+                          that should be replaced.
+                          Default: Empty
 
   --stripspace=(0|1)      Specify whether you want to replace spaces in
                           file or directory names with underscores (1) or
