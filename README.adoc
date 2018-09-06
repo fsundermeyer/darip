@@ -2,3 +2,80 @@
 
 Wrapper script for transcode to rip Audio/Music DVDs. For Linux only.
 Inspired by Philippe Gachoud's answer in http://askubuntu.com/questions/24326/how-do-i-rip-audio-from-a-dvd
+
+
+----
+Usage:
+  darip [OPTIONS] [TRACKS]
+
+See the list of option below.
+
+The list of tracks is to be provided as a comma-separated list, ranges are
+supported (e.g. "1,2,5-9,15"). If no tracks are specified, all tracks from
+the selected title will be ripped.
+
+General Options:
+
+
+  --help                  Print this help screen.
+
+  --outdir=PATH           Path to the output directory. If one or more of
+                          artist, albumtitle, and year are specified, the
+                                     output will go to OUTDIR/ARTIST/YEAR_ALBUM
+                                     Default: $HOME/Music
+
+  --purge=CHARACTER_LIST  Space-separated list of characters that will be
+                                    removed from file and directory names. |\:*?
+                                    plus spaces and periods at the beginning and
+                                    the end of names will always be removed. With this
+                                    parameter you can specify _additional_ characters
+                                    that should be replaced.
+                                    Default: Empty
+
+  --stripspace=(0|1)      Specify whether you want to replace spaces in
+                          file or directory names with underscores (1) or
+                          not (0).
+                          Default: 1 (spaces will be replaced)
+
+  --preset=(medium|       VBR Lame preset. Refer to man lame for more
+            standard|     information.
+            extreme|      Default: insane
+            insane)
+
+
+Tagging Options:
+
+
+  --album="ALBUMTITLE",   If one or more of the following options is set,
+  --artist="ARTIST",      the mp3 files will automatically be tagged with the
+  --comment="COMMENT",    specified data. Album, artist and year will also
+  --genre="GENRE",        be used for the output directory (see --outdir).
+  --year="YEAR"           Default: unset
+
+  --gain=(album|track)    Apply album or track gain to the mp3 files.
+                          Requires mp3gain to be installed.
+                          Default: unset (no gain will be applied)
+
+Track titles and numbers will not be written. DVDs usually contain additional
+tracks at the beginning or end of the tracklist (e.g. background music for the
+menu and/or the credits), which you probably want to remove in a
+post-processing step. Titles and track numbers would very likely be wrong in
+this case.
+
+Expert Options:
+
+
+  --device                DVD device.
+                          Default: /dev/sr0
+
+  --seeksize              By default the first 10 MB of the DVD files are
+                          scanned to detect all subtitles and audio tracks.
+                          This should usually be sufficient. If not all tracks
+                          are found on you DVD, increase this value.
+                          Default: 10
+
+  --title                 Select a DVD title from which the tracks should be
+                          ripped. Only specify this option if you are sure
+                          which title to us. If you do not specify it, you can
+                          choose from the list of available titles.
+----
